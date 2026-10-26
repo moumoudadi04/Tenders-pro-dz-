@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -22,39 +22,44 @@ jobs:
         with:
           node-version: 20
 
-      - name: Locate project or archive
+      - name: Find and extract project
         shell: bash
         run: |
           set -e
 
-          echo "Checking repository files..."
-
+          echo "===== REPOSITORY FILES ====="
           find "$GITHUB_WORKSPACE" \
-            -maxdepth 4 -type f \
+            -maxdepth 5 -type f \
             -not -path '*/.git/*' \
             -printf '%p (%s bytes)\n'
 
+          APP_DIR=""
+
           APP_DIR=$(find "$GITHUB_WORKSPACE" \
             -maxdepth 10 \
-            -type f -name package.json \
+            -type f \
+            -name package.json \
             -not -path '*/node_modules/*' \
             -not -path '*/.git/*' \
             -print -quit | xargs -r dirname)
 
           if [ -z "$APP_DIR" ]; then
-            mkdir -p "$RUNNER_TEMP/dz-source"
+            echo "Searching all uploaded files for ZIP archives..."
+
+            mkdir -p "$RUNNER_TEMP/dz-project"
 
             while IFS= read -r -d '' FILE; do
               if unzip -tq "$FILE" >/dev/null 2>&1; then
-                echo "Valid ZIP archive found: $FILE"
+                echo "Archive found: $FILE"
 
-                DEST="$RUNNER_TEMP/dz-source/$(basename "$FILE")"
+                DEST="$RUNNER_TEMP/dz-project/archive_$(date +%s%N)"
                 mkdir -p "$DEST"
                 unzip -oq "$FILE" -d "$DEST"
 
                 APP_DIR=$(find "$DEST" \
-                  -maxdepth 12 \
-                  -type f -name package.json \
+                  -maxdepth 15 \
+                  -type f \
+                  -name package.json \
                   -not -path '*/node_modules/*' \
                   -print -quit | xargs -r dirname)
 
@@ -64,7 +69,7 @@ jobs:
               fi
             done < <(
               find "$GITHUB_WORKSPACE" \
-                -maxdepth 6 -type f \
+                -type f \
                 -not -path '*/.git/*' \
                 -not -path '*/.github/*' \
                 -not -path '*/node_modules/*' \
@@ -73,39 +78,40 @@ jobs:
           fi
 
           if [ -z "$APP_DIR" ]; then
-            echo "ERROR: No valid web project was found."
-            echo "The repository may contain an archive that does not include the source code."
+            echo "ERROR: Could not find package.json."
+            echo "The project source files may not have been uploaded."
             exit 1
           fi
 
           echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
-          echo "Project found: $APP_DIR"
+          echo "Project directory: $APP_DIR"
 
-      - name: Install dependencies
+      - name: Install Node dependencies
         working-directory: ${{ env.APP_DIR }}
         run: |
+          set -e
           if [ -f package-lock.json ]; then
             npm ci
           else
             npm install
           fi
 
-      - name: Build web app
+      - name: Build web application
         working-directory: ${{ env.APP_DIR }}
         run: npm run build
 
-      - name: Prepare Capacitor
+      - name: Configure Capacitor Android
         working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
           set -e
 
           if [ -d dist ]; then
-            WEB_DIR=dist
+            WEB_DIR="dist"
           elif [ -d build ]; then
-            WEB_DIR=build
+            WEB_DIR="build"
           else
-            echo "ERROR: Web build output directory not found."
+            echo "ERROR: Build output folder not found."
             exit 1
           fi
 
@@ -130,14 +136,15 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Build APK
+      - name: Build Android APK
         working-directory: ${{ env.APP_DIR }}
         run: |
+          set -e
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: DZ-Tenders-Pro-APK
