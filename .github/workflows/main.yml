@@ -1,0 +1,108 @@
+name: Build DZ Tenders Pro APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Locate project
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f "$GITHUB_WORKSPACE/package.json" ]; then
+            APP_DIR="$GITHUB_WORKSPACE"
+          else
+            ZIP_FILE=$(find "$GITHUB_WORKSPACE" \
+              -maxdepth 3 -type f -iname '*.zip' \
+              -print -quit)
+
+            if [ -z "$ZIP_FILE" ]; then
+              echo "ERROR: No package.json or ZIP file found."
+              exit 1
+            fi
+
+            mkdir -p "$RUNNER_TEMP/dz-tenders-source"
+            unzip -q "$ZIP_FILE" \
+              -d "$RUNNER_TEMP/dz-tenders-source"
+
+            APP_DIR=$(find "$RUNNER_TEMP/dz-tenders-source" \
+              -maxdepth 6 -type f -name package.json \
+              -print -quit | xargs -r dirname)
+
+            if [ -z "$APP_DIR" ]; then
+              echo "ERROR: No web project found in ZIP."
+              exit 1
+            fi
+          fi
+
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          echo "Project directory: $APP_DIR"
+
+      - name: Install web dependencies
+        run: |
+          cd "$APP_DIR"
+          npm install
+
+      - name: Configure Capacitor
+        run: |
+          cd "$APP_DIR"
+
+          npm install --no-save \
+            @capacitor/core@7 \
+            @capacitor/android@7 \
+            @capacitor/cli@7
+
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.dztenderspro.app",
+            "appName": "DZ Tenders Pro",
+            "webDir": "dist",
+            "server": {
+              "androidScheme": "https"
+            }
+          }
+          EOF
+
+      - name: Build web application
+        run: |
+          cd "$APP_DIR"
+          npm run build
+
+      - name: Prepare Android project
+        run: |
+          cd "$APP_DIR"
+
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+
+          npx cap sync android
+
+      - name: Build APK
+        run: |
+          cd "$APP_DIR/android"
+          chmod +x
