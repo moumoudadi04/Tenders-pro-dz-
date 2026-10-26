@@ -1,7 +1,7 @@
-name: Build and Release DZ Tenders Pro APK
+name: Build DZ Tenders Pro APK
 
 on:
-  workflow_dispatch: # يتيح لك تشغيل البناء يدوياً من صفحة Actions
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -23,34 +23,16 @@ jobs:
         with:
           node-version: 20
 
-      - name: Locate Project Directory
-        shell: bash
+      - name: Check package.json existence
         run: |
-          set -e
-          echo "===== SEARCHING FOR PACKAGE.JSON ====="
-          APP_DIR=""
-          
-          # البحث المباشر عن package.json
-          APP_DIR=$(find "$GITHUB_WORKSPACE" \
-            -maxdepth 8 \
-            -type f \
-            -name package.json \
-            -not -path '*/node_modules/*' \
-            -not -path '*/.git/*' \
-            -print -quit | xargs -r dirname)
-
-          if [ -z "$APP_DIR" ]; then
-            echo "ERROR: Could not find package.json in the repository."
+          if [ ! -f "package.json" ]; then
+            echo "ERROR: package.json not found in the root directory!"
             exit 1
           fi
-
-          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
-          echo "Found project at: $APP_DIR"
+          echo "package.json found successfully."
 
       - name: Install Dependencies
-        working-directory: ${{ env.APP_DIR }}
         run: |
-          set -e
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -58,15 +40,11 @@ jobs:
           fi
 
       - name: Build Web App
-        working-directory: ${{ env.APP_DIR }}
         run: npm run build
 
       - name: Setup Capacitor and Android Environment
-        working-directory: ${{ env.APP_DIR }}
-        shell: bash
         run: |
-          set -e
-          # تحديد مجلد المخرجات (dist أو build)
+          # تحديد مجلد المخرجات بناءً على ما يظهر بعد البناء
           if [ -d dist ]; then
             WEB_DIR="dist"
           elif [ -d build ]; then
@@ -76,10 +54,10 @@ jobs:
             exit 1
           fi
 
-          # تثبيت حزم كاباسيتور إذا لم تكن موجودة
+          # تثبيت كاباسيتور
           npm install @capacitor/core @capacitor/cli @capacitor/android
 
-          # تهيئة كاباسيتور إن لم يكن مهيئاً
+          # تهيئة كاباسيتور إن لم يكن موجوداً
           if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ] && [ ! -f capacitor.config.js ]; then
             npx cap init "DZ Tenders Pro" "com.dztenderspro.app" --web-dir "$WEB_DIR"
           fi
@@ -98,8 +76,8 @@ jobs:
           java-version: '17'
 
       - name: Build APK with Gradle
-        working-directory: ${{ env.APP_DIR }}/android
         run: |
+          cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
@@ -107,5 +85,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DZ-Tenders-Pro-Debug-APK
-          path: ${{ env.APP_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
