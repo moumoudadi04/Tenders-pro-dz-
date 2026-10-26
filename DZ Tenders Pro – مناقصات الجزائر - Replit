@@ -23,59 +23,37 @@ jobs:
         with:
           node-version: 20
 
-      - name: Find and Extract Project (ZIP or Folders)
+      - name: Find and Extract ZIP Project
         shell: bash
         run: |
           set -e
-          echo "===== SEARCHING FOR PROJECT FILES ====="
-          
+          echo "===== CHECKING REPOSITORY CONTENTS ====="
+          ls -la "$GITHUB_WORKSPACE"
+
           APP_DIR=""
           
-          # 1. البحث المباشر عن package.json إذا كان المشروع مرفوعاً كمجلدات عادية
-          APP_DIR=$(find "$GITHUB_WORKSPACE" \
-            -maxdepth 6 \
-            -type f \
-            -name package.json \
-            -not -path '*/node_modules/*' \
-            -not -path '*/.git/*' \
-            -print -quit | xargs -r dirname)
-
-          # 2. إذا لم يتم العثور عليه، البحث عن ملفات ZIP وفك ضغطها تلقائياً
-          if [ -z "$APP_DIR" ]; then
-            echo "No direct package.json found. Searching for ZIP archives..."
-            mkdir -p "$RUNNER_TEMP/dz-project"
+          # البحث المباشر عن package.json إذا كانت الملفات مفكوكة
+          if [ -f "package.json" ]; then
+            APP_DIR="$GITHUB_WORKSPACE"
+          else
+            # البحث عن أول ملف ZIP في المستودع وفك ضغطه تلقائياً
+            ZIP_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type f -name "*.zip" | head -n 1)
             
-            while IFS= read -r -d '' FILE; do
-              if unzip -tq "$FILE" >/dev/null 2>&1; then
-                echo "Archive found: $FILE"
-                DEST="$RUNNER_TEMP/dz-project/archive_$(date +%s%N)"
-                mkdir -p "$DEST"
-                unzip -oq "$FILE" -d "$DEST"
-                
-                APP_DIR=$(find "$DEST" \
-                  -maxdepth 10 \
-                  -type f \
-                  -name package.json \
-                  -not -path '*/node_modules/*' \
-                  -print -quit | xargs -r dirname)
-                  
-                if [ -n "$APP_DIR" ]; then
-                  echo "Project successfully extracted to: $APP_DIR"
-                  break
-                fi
-              fi
-            done < <(
-              find "$GITHUB_WORKSPACE" \
-                -type f \
-                -not -path '*/.git/*' \
-                -not -path '*/.github/*' \
-                -not -path '*/node_modules/*' \
-                -print0
-            )
+            if [ -n "$ZIP_FILE" ]; then
+              echo "Found ZIP file: $ZIP_FILE"
+              mkdir -p "$RUNNER_TEMP/extracted_project"
+              unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/extracted_project"
+              
+              # العثور على مسار package.json داخل الملف المفكوك
+              APP_DIR=$(find "$RUNNER_TEMP/extracted_project" -type f -name "package.json" -print -quit | xargs -r dirname)
+            fi
           fi
 
-          if [ -z "$APP_DIR" ]; then
-            echo "ERROR: Could not find package.json or any valid ZIP archive."
+          if [ -z "$APP_DIR" ] || [ ! -f "$APP_DIR/package.json" ]; then
+            echo "=================================================="
+            echo "ERROR: Could not find package.json or a valid ZIP file!"
+            echo "Please ensure your .zip file is uploaded to the root of the repository."
+            echo "=================================================="
             exit 1
           fi
 
@@ -85,7 +63,6 @@ jobs:
       - name: Install Dependencies
         working-directory: ${{ env.APP_DIR }}
         run: |
-          set -e
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -96,18 +73,16 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: npm run build
 
-      - name: Setup Capacitor and Android Environment
+      - name: Setup Capacitor and Android
         working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
-          set -e
           if [ -d dist ]; then
             WEB_DIR="dist"
           elif [ -d build ]; then
             WEB_DIR="build"
           else
-            echo "ERROR: Web build output folder (dist or build) not found!"
-            exit 1
+            WEB_DIR="dist"
           fi
 
           npm install @capacitor/core @capacitor/cli @capacitor/android
