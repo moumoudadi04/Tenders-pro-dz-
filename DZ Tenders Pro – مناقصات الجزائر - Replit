@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Download repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -22,38 +22,39 @@ jobs:
         with:
           node-version: 20
 
-      - name: Locate and extract project
+      - name: Locate project or archive
         shell: bash
         run: |
           set -e
 
-          echo "Searching for package.json..."
+          echo "Checking repository files..."
+
+          find "$GITHUB_WORKSPACE" \
+            -maxdepth 4 -type f \
+            -not -path '*/.git/*' \
+            -printf '%p (%s bytes)\n'
 
           APP_DIR=$(find "$GITHUB_WORKSPACE" \
             -maxdepth 10 \
-            -type f \
-            -name package.json \
+            -type f -name package.json \
             -not -path '*/node_modules/*' \
             -not -path '*/.git/*' \
             -print -quit | xargs -r dirname)
 
           if [ -z "$APP_DIR" ]; then
-            echo "Searching repository files for ZIP archives..."
-
-            mkdir -p "$RUNNER_TEMP/dz-tenders-source"
+            mkdir -p "$RUNNER_TEMP/dz-source"
 
             while IFS= read -r -d '' FILE; do
               if unzip -tq "$FILE" >/dev/null 2>&1; then
-                echo "Archive found: $FILE"
+                echo "Valid ZIP archive found: $FILE"
 
-                DEST="$RUNNER_TEMP/dz-tenders-source/$(date +%s%N)"
+                DEST="$RUNNER_TEMP/dz-source/$(basename "$FILE")"
                 mkdir -p "$DEST"
                 unzip -oq "$FILE" -d "$DEST"
 
                 APP_DIR=$(find "$DEST" \
                   -maxdepth 12 \
-                  -type f \
-                  -name package.json \
+                  -type f -name package.json \
                   -not -path '*/node_modules/*' \
                   -print -quit | xargs -r dirname)
 
@@ -63,8 +64,7 @@ jobs:
               fi
             done < <(
               find "$GITHUB_WORKSPACE" \
-                -maxdepth 6 \
-                -type f \
+                -maxdepth 6 -type f \
                 -not -path '*/.git/*' \
                 -not -path '*/.github/*' \
                 -not -path '*/node_modules/*' \
@@ -73,59 +73,49 @@ jobs:
           fi
 
           if [ -z "$APP_DIR" ]; then
-            echo "ERROR: No usable package.json was found."
-            echo "The uploaded archive may not contain the project source."
+            echo "ERROR: No valid web project was found."
+            echo "The repository may contain an archive that does not include the source code."
             exit 1
           fi
 
           echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
-          echo "Project found at: $APP_DIR"
-          echo "Project files:"
-          ls -la "$APP_DIR"
+          echo "Project found: $APP_DIR"
 
       - name: Install dependencies
         working-directory: ${{ env.APP_DIR }}
-        shell: bash
         run: |
-          set -e
-
           if [ -f package-lock.json ]; then
             npm ci
           else
             npm install
           fi
 
-      - name: Build web application
+      - name: Build web app
         working-directory: ${{ env.APP_DIR }}
         run: npm run build
 
-      - name: Prepare Android project
+      - name: Prepare Capacitor
         working-directory: ${{ env.APP_DIR }}
         shell: bash
         run: |
           set -e
 
-          if [ ! -d dist ] && [ ! -d build ]; then
-            echo "ERROR: No dist or build directory was generated."
+          if [ -d dist ]; then
+            WEB_DIR=dist
+          elif [ -d build ]; then
+            WEB_DIR=build
+          else
+            echo "ERROR: Web build output directory not found."
             exit 1
           fi
+
+          npm install @capacitor/core @capacitor/cli @capacitor/android
 
           if [ ! -f capacitor.config.ts ] && \
              [ ! -f capacitor.config.json ] && \
              [ ! -f capacitor.config.js ]; then
-
-            npm install @capacitor/core @capacitor/cli @capacitor/android
-
-            if [ -d dist ]; then
-              WEB_DIR="dist"
-            else
-              WEB_DIR="build"
-            fi
-
             npx cap init "DZ Tenders Pro" "com.dztenderspro.app" \
               --web-dir "$WEB_DIR"
-          else
-            npm install @capacitor/core @capacitor/cli @capacitor/android
           fi
 
           if [ ! -d android ]; then
@@ -142,9 +132,7 @@ jobs:
 
       - name: Build APK
         working-directory: ${{ env.APP_DIR }}
-        shell: bash
         run: |
-          set -e
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
