@@ -23,16 +23,69 @@ jobs:
         with:
           node-version: 20
 
-      - name: Check package.json existence
+      - name: Find and Extract Project (ZIP or Folders)
+        shell: bash
         run: |
-          if [ ! -f "package.json" ]; then
-            echo "ERROR: package.json not found in the root directory!"
+          set -e
+          echo "===== SEARCHING FOR PROJECT FILES ====="
+          
+          APP_DIR=""
+          
+          # 1. البحث المباشر عن package.json إذا كان المشروع مرفوعاً كمجلدات عادية
+          APP_DIR=$(find "$GITHUB_WORKSPACE" \
+            -maxdepth 6 \
+            -type f \
+            -name package.json \
+            -not -path '*/node_modules/*' \
+            -not -path '*/.git/*' \
+            -print -quit | xargs -r dirname)
+
+          # 2. إذا لم يتم العثور عليه، البحث عن ملفات ZIP وفك ضغطها تلقائياً
+          if [ -z "$APP_DIR" ]; then
+            echo "No direct package.json found. Searching for ZIP archives..."
+            mkdir -p "$RUNNER_TEMP/dz-project"
+            
+            while IFS= read -r -d '' FILE; do
+              if unzip -tq "$FILE" >/dev/null 2>&1; then
+                echo "Archive found: $FILE"
+                DEST="$RUNNER_TEMP/dz-project/archive_$(date +%s%N)"
+                mkdir -p "$DEST"
+                unzip -oq "$FILE" -d "$DEST"
+                
+                APP_DIR=$(find "$DEST" \
+                  -maxdepth 10 \
+                  -type f \
+                  -name package.json \
+                  -not -path '*/node_modules/*' \
+                  -print -quit | xargs -r dirname)
+                  
+                if [ -n "$APP_DIR" ]; then
+                  echo "Project successfully extracted to: $APP_DIR"
+                  break
+                fi
+              fi
+            done < <(
+              find "$GITHUB_WORKSPACE" \
+                -type f \
+                -not -path '*/.git/*' \
+                -not -path '*/.github/*' \
+                -not -path '*/node_modules/*' \
+                -print0
+            )
+          fi
+
+          if [ -z "$APP_DIR" ]; then
+            echo "ERROR: Could not find package.json or any valid ZIP archive."
             exit 1
           fi
-          echo "package.json found successfully."
+
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          echo "Project directory is: $APP_DIR"
 
       - name: Install Dependencies
+        working-directory: ${{ env.APP_DIR }}
         run: |
+          set -e
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -40,11 +93,14 @@ jobs:
           fi
 
       - name: Build Web App
+        working-directory: ${{ env.APP_DIR }}
         run: npm run build
 
       - name: Setup Capacitor and Android Environment
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
         run: |
-          # تحديد مجلد المخرجات بناءً على ما يظهر بعد البناء
+          set -e
           if [ -d dist ]; then
             WEB_DIR="dist"
           elif [ -d build ]; then
@@ -54,15 +110,12 @@ jobs:
             exit 1
           fi
 
-          # تثبيت كاباسيتور
           npm install @capacitor/core @capacitor/cli @capacitor/android
 
-          # تهيئة كاباسيتور إن لم يكن موجوداً
           if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ] && [ ! -f capacitor.config.js ]; then
             npx cap init "DZ Tenders Pro" "com.dztenderspro.app" --web-dir "$WEB_DIR"
           fi
 
-          # إضافة منصة أندرويد إذا لم تكن موجودة
           if [ ! -d android ]; then
             npx cap add android
           fi
@@ -76,8 +129,8 @@ jobs:
           java-version: '17'
 
       - name: Build APK with Gradle
+        working-directory: ${{ env.APP_DIR }}/android
         run: |
-          cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
@@ -85,5 +138,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DZ-Tenders-Pro-Debug-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.APP_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
