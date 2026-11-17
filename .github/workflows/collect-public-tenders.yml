@@ -1,6 +1,8 @@
 name: Collect public Algerian tender listings
 
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
