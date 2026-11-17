@@ -9,11 +9,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +31,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+// يتم اختيار خادم KENDR PRO تلقائياً دون مطالبة المستخدم بإدخال الرابط.
 private const val DEFAULT_API = "https://kendr-pro-api.onrender.com"
 
 private val ALGERIAN_WILAYAS = listOf(
@@ -55,10 +63,9 @@ fun KEndrProApp() {
     val teal = Color(0xFF00A896)
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
-    var apiBase by remember { mutableStateOf(DEFAULT_API) }
     var tenders by remember { mutableStateOf<List<TenderItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("اضغط تحديث لجلب أحدث الإعلانات") }
+    var message by remember { mutableStateOf("جارٍ الاتصال بخادم KENDR PRO تلقائياً...") }
     var query by remember { mutableStateOf("") }
     var wilaya by remember { mutableStateOf("") }
     var appliedQuery by remember { mutableStateOf("") }
@@ -69,10 +76,9 @@ fun KEndrProApp() {
         loading = true
         try {
             val result = withContext(Dispatchers.IO) {
-                val base = apiBase.trim().trimEnd('/')
-                val connection = (URL("$base/api/tenders?limit=200").openConnection() as HttpURLConnection)
-                connection.connectTimeout = 15000
-                connection.readTimeout = 20000
+                val connection = (URL("$DEFAULT_API/api/tenders?limit=500").openConnection() as HttpURLConnection)
+                connection.connectTimeout = 20000
+                connection.readTimeout = 30000
                 connection.setRequestProperty("Accept", "application/json")
                 try {
                     if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
@@ -82,72 +88,92 @@ fun KEndrProApp() {
                     buildList {
                         for (i in 0 until array.length()) {
                             val o = array.getJSONObject(i)
-                            add(TenderItem(o.optInt("id"), o.optString("title"), o.optString("wilaya"),
+                            add(TenderItem(
+                                o.optInt("id"), o.optString("title"), o.optString("wilaya"),
                                 o.optString("kind"), o.optString("reference"), o.optString("deadline"),
-                                o.optString("source_name", o.optString("source")), o.optString("source_url")))
+                                o.optString("source_name", o.optString("source")), o.optString("source_url")
+                            ))
                         }
                     }
                 } finally { connection.disconnect() }
             }
             tenders = result
-            message = "تم الاتصال بالخادم • ${result.size} إعلان"
+            message = "متصل بالخادم تلقائياً • تم تحميل ${result.size} إعلان"
         } catch (e: Exception) {
-            message = "تعذر الاتصال: ${e.message ?: "تحقق من رابط الخادم"}"
+            message = "تعذر الاتصال بالخادم تلقائياً: ${e.message ?: "حاول التحديث لاحقاً"}"
         } finally { loading = false }
     }
 
-    LaunchedEffect(apiBase) {
+    LaunchedEffect(Unit) {
+        load()
         while (true) {
-            load()
             delay(15 * 60 * 1000L)
+            load()
         }
     }
 
-    val filtered = tenders.filter {
-        (appliedQuery.isBlank() || it.title.contains(appliedQuery, true) || it.reference.contains(appliedQuery, true)) &&
-        (appliedWilaya.isBlank() || it.wilaya.contains(appliedWilaya, true))
+    val filtered = tenders.filter { item ->
+        val matchesQuery = appliedQuery.isBlank() ||
+            item.title.contains(appliedQuery, true) ||
+            item.reference.contains(appliedQuery, true) ||
+            item.source.contains(appliedQuery, true)
+        val matchesWilaya = appliedWilaya.isBlank() ||
+            item.wilaya.contains(appliedWilaya, true) ||
+            (appliedWilaya == "الجزائر" && item.wilaya.contains("العاصمة", true))
+        matchesQuery && matchesWilaya
     }
 
     MaterialTheme(colorScheme = lightColorScheme(primary = teal, background = Color(0xFFF3F6F9))) {
         Column(Modifier.fillMaxSize().background(Color(0xFFF3F6F9))) {
             Column(Modifier.fillMaxWidth().background(navy).padding(18.dp)) {
                 Text("KENDR PRO", color = Color.White, fontSize = 25.sp)
-                Text("المناقصات والاستشارات الجزائرية • بحث حسب الولاية", color = Color(0xFFD5E3EF), fontSize = 13.sp)
+                Text("المناقصات والاستشارات الجزائرية • جميع الولايات", color = Color(0xFFD5E3EF), fontSize = 13.sp)
             }
+
             Column(
-                Modifier.fillMaxWidth().padding(12.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
+                Text("ابحث عن المناقصات والاستشارات", color = navy, fontSize = 17.sp)
                 OutlinedTextField(
-                    value = apiBase, onValueChange = { apiBase = it },
-                    label = { Text("رابط الخادم") }, modifier = Modifier.fillMaxWidth(), singleLine = true
-                )
-
-                Text("ابحث عن المناقصات", color = navy, fontSize = 17.sp)
-
-                OutlinedTextField(
-                    value = query, onValueChange = { query = it },
-                    label = { Text("اكتب اسم المناقصة أو رقمها") },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("اسم المناقصة أو رقمها أو المؤسسة") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        appliedQuery = query.trim()
+                        appliedWilaya = wilaya
+                    })
                 )
 
                 Box(Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = wilaya.ifBlank { "كل الولايات" },
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("اختر الولاية") },
-                        trailingIcon = { Text("▼", color = teal) },
+                    Surface(
                         modifier = Modifier.fillMaxWidth().clickable { wilayaMenuExpanded = true },
-                        singleLine = true
-                    )
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.White,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF9AA8B5))
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("الولاية", color = Color.Gray, fontSize = 11.sp)
+                                Text(wilaya.ifBlank { "كل الولايات" }, color = navy, fontSize = 15.sp)
+                            }
+                            Text("▼", color = teal, fontSize = 16.sp)
+                        }
+                    }
                     DropdownMenu(
                         expanded = wilayaMenuExpanded,
                         onDismissRequest = { wilayaMenuExpanded = false },
-                        modifier = Modifier.heightIn(max = 320.dp)
+                        modifier = Modifier.fillMaxWidth(0.92f).heightIn(max = 360.dp)
                     ) {
                         DropdownMenuItem(
-                            text = { Text("كل الولايات") },
+                            text = { Text("كل الولايات", color = navy) },
                             onClick = { wilaya = ""; wilayaMenuExpanded = false }
                         )
                         ALGERIAN_WILAYAS.forEach { name ->
@@ -161,37 +187,42 @@ fun KEndrProApp() {
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { appliedQuery = query.trim(); appliedWilaya = wilaya },
+                        onClick = {
+                            appliedQuery = query.trim()
+                            appliedWilaya = wilaya
+                        },
                         modifier = Modifier.weight(1f)
                     ) { Text("بحث") }
                     OutlinedButton(
                         onClick = {
-                            query = ""; wilaya = ""
-                            appliedQuery = ""; appliedWilaya = ""
+                            query = ""
+                            wilaya = ""
+                            appliedQuery = ""
+                            appliedWilaya = ""
                         },
                         modifier = Modifier.weight(1f)
-                    ) { Text("مسح البحث") }
+                    ) { Text("إلغاء الفلترة") }
                 }
 
                 Button(
                     onClick = { scope.launch { load() } },
                     enabled = !loading,
                     modifier = Modifier.fillMaxWidth()
-                ) { Text(if (loading) "جارٍ التحديث..." else "تحديث الإعلانات") }
+                ) { Text(if (loading) "جارٍ تحميل الإعلانات..." else "تحديث الإعلانات") }
 
-                Text(message, color = if (message.startsWith("تم الاتصال")) teal else Color.DarkGray, fontSize = 12.sp)
-                Text("عدد النتائج: ${filtered.size}", color = navy, fontSize = 13.sp)
+                Text(message, color = if (message.startsWith("متصل")) teal else Color.DarkGray, fontSize = 12.sp)
+                Text("عدد النتائج: ${filtered.size} من ${tenders.size}", color = navy, fontSize = 13.sp)
             }
 
             if (filtered.isEmpty() && !loading) {
                 Text(
-                    "لا توجد نتائج مطابقة حالياً. جرّب ولاية أخرى أو امسح البحث.",
+                    if (tenders.isEmpty()) "لا توجد إعلانات محملة حالياً. اضغط تحديث الإعلانات." else "لا توجد نتائج مطابقة. جرّب كلمة أخرى أو اختر كل الولايات.",
                     modifier = Modifier.padding(18.dp), color = Color.Gray
                 )
             }
 
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
