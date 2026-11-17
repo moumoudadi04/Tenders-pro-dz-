@@ -26,6 +26,17 @@ import java.net.URL
 
 private const val DEFAULT_API = "https://kendr-pro-api.onrender.com"
 
+private val ALGERIAN_WILAYAS = listOf(
+    "أدرار", "الشلف", "الأغواط", "أم البواقي", "باتنة", "بجاية", "بسكرة", "بشار",
+    "البليدة", "البويرة", "تمنراست", "تبسة", "تلمسان", "تيارت", "تيزي وزو", "الجزائر",
+    "الجلفة", "جيجل", "سطيف", "سعيدة", "سكيكدة", "سيدي بلعباس", "عنابة", "قالمة",
+    "قسنطينة", "المدية", "مستغانم", "المسيلة", "معسكر", "ورقلة", "وهران", "البيض",
+    "إليزي", "برج بوعريريج", "بومرداس", "الطارف", "تندوف", "تيسمسيلت", "الوادي",
+    "خنشلة", "سوق أهراس", "تيبازة", "ميلة", "عين الدفلى", "النعامة", "عين تموشنت",
+    "غرداية", "غليزان", "تيميمون", "برج باجي مختار", "أولاد جلال", "بني عباس",
+    "عين صالح", "عين قزام", "تقرت", "جانت", "المغير", "المنيعة"
+)
+
 data class TenderItem(
     val id: Int, val title: String, val wilaya: String, val kind: String,
     val reference: String, val deadline: String, val source: String, val url: String
@@ -50,6 +61,9 @@ fun KEndrProApp() {
     var message by remember { mutableStateOf("اضغط تحديث لجلب أحدث الإعلانات") }
     var query by remember { mutableStateOf("") }
     var wilaya by remember { mutableStateOf("") }
+    var appliedQuery by remember { mutableStateOf("") }
+    var appliedWilaya by remember { mutableStateOf("") }
+    var wilayaMenuExpanded by remember { mutableStateOf(false) }
 
     suspend fun load() {
         loading = true
@@ -90,36 +104,97 @@ fun KEndrProApp() {
     }
 
     val filtered = tenders.filter {
-        (query.isBlank() || it.title.contains(query, true) || it.reference.contains(query, true)) &&
-        (wilaya.isBlank() || it.wilaya.contains(wilaya, true))
+        (appliedQuery.isBlank() || it.title.contains(appliedQuery, true) || it.reference.contains(appliedQuery, true)) &&
+        (appliedWilaya.isBlank() || it.wilaya.contains(appliedWilaya, true))
     }
 
     MaterialTheme(colorScheme = lightColorScheme(primary = teal, background = Color(0xFFF3F6F9))) {
         Column(Modifier.fillMaxSize().background(Color(0xFFF3F6F9))) {
             Column(Modifier.fillMaxWidth().background(navy).padding(18.dp)) {
                 Text("KENDR PRO", color = Color.White, fontSize = 25.sp)
-                Text("المناقصات والاستشارات الجزائرية • تحديث مباشر", color = Color(0xFFD5E3EF), fontSize = 13.sp)
+                Text("المناقصات والاستشارات الجزائرية • بحث حسب الولاية", color = Color(0xFFD5E3EF), fontSize = 13.sp)
             }
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(apiBase, { apiBase = it }, label = { Text("رابط الخادم") },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { scope.launch { load() } }, enabled = !loading, modifier = Modifier.weight(1f)) {
-                        Text(if (loading) "جارٍ التحديث..." else "تحديث الإعلانات")
+            Column(
+                Modifier.fillMaxWidth().padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                OutlinedTextField(
+                    value = apiBase, onValueChange = { apiBase = it },
+                    label = { Text("رابط الخادم") }, modifier = Modifier.fillMaxWidth(), singleLine = true
+                )
+
+                Text("ابحث عن المناقصات", color = navy, fontSize = 17.sp)
+
+                OutlinedTextField(
+                    value = query, onValueChange = { query = it },
+                    label = { Text("اكتب اسم المناقصة أو رقمها") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true
+                )
+
+                Box(Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = wilaya.ifBlank { "كل الولايات" },
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("اختر الولاية") },
+                        trailingIcon = { Text("▼", color = teal) },
+                        modifier = Modifier.fillMaxWidth().clickable { wilayaMenuExpanded = true },
+                        singleLine = true
+                    )
+                    DropdownMenu(
+                        expanded = wilayaMenuExpanded,
+                        onDismissRequest = { wilayaMenuExpanded = false },
+                        modifier = Modifier.heightIn(max = 320.dp)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("كل الولايات") },
+                            onClick = { wilaya = ""; wilayaMenuExpanded = false }
+                        )
+                        ALGERIAN_WILAYAS.forEach { name ->
+                            DropdownMenuItem(
+                                text = { Text(name) },
+                                onClick = { wilaya = name; wilayaMenuExpanded = false }
+                            )
+                        }
                     }
-                    OutlinedButton(onClick = { query = ""; wilaya = "" }) { Text("مسح البحث") }
                 }
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { appliedQuery = query.trim(); appliedWilaya = wilaya },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("بحث") }
+                    OutlinedButton(
+                        onClick = {
+                            query = ""; wilaya = ""
+                            appliedQuery = ""; appliedWilaya = ""
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("مسح البحث") }
+                }
+
+                Button(
+                    onClick = { scope.launch { load() } },
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (loading) "جارٍ التحديث..." else "تحديث الإعلانات") }
+
                 Text(message, color = if (message.startsWith("تم الاتصال")) teal else Color.DarkGray, fontSize = 12.sp)
-                OutlinedTextField(query, { query = it }, label = { Text("بحث بالعنوان أو الرقم") },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(wilaya, { wilaya = it }, label = { Text("تصفية حسب الولاية") },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Text("عدد النتائج: ${filtered.size}", color = navy, fontSize = 13.sp)
             }
+
             if (filtered.isEmpty() && !loading) {
-                Text("لا توجد إعلانات معروضة حالياً. حدّث القائمة وتأكد من تشغيل الخادم.",
-                    modifier = Modifier.padding(18.dp), color = Color.Gray)
+                Text(
+                    "لا توجد نتائج مطابقة حالياً. جرّب ولاية أخرى أو امسح البحث.",
+                    modifier = Modifier.padding(18.dp), color = Color.Gray
+                )
             }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
                 items(filtered) { item ->
                     Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
