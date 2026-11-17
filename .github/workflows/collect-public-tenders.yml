@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  collect:
+  collect-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,18 +18,16 @@ jobs:
           python-version: "3.11"
       - name: Install collector dependencies
         run: pip install -r backend/requirements.txt
-      - name: Run public-source collector smoke test
+      - name: Test real public listing collection
         working-directory: backend
+        env:
+          PYTHONPATH: .
         run: |
           python - <<'PY'
-          import requests
-          from bs4 import BeautifulSoup
-          url = "https://www.mounakassatdz.com/annonces"
-          r = requests.get(url, timeout=30, headers={"User-Agent":"KENDR-PRO-public-index-collector/1.0"})
-          r.raise_for_status()
-          soup = BeautifulSoup(r.text, "html.parser")
-          links = soup.select('a[href*="/details/"]')
-          print(f"Public listing reachable; visible detail links: {len(links)}")
-          if not links:
-              raise SystemExit("No public listing links detected; source layout may have changed.")
+          from app.main import SessionLocal
+          from app.collector import collect_public_tenders
+          result = collect_public_tenders(SessionLocal, max_pages=2)
+          print(result)
+          if result["records_seen"] == 0:
+              raise SystemExit("No public tender records were parsed. The source may have changed or blocked the request.")
           PY
