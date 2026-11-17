@@ -1,0 +1,35 @@
+name: Collect public Algerian tender listings
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install collector dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Run public-source collector smoke test
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import requests
+          from bs4 import BeautifulSoup
+          url = "https://www.mounakassatdz.com/annonces"
+          r = requests.get(url, timeout=30, headers={"User-Agent":"KENDR-PRO-public-index-collector/1.0"})
+          r.raise_for_status()
+          soup = BeautifulSoup(r.text, "html.parser")
+          links = soup.select('a[href*="/details/"]')
+          print(f"Public listing reachable; visible detail links: {len(links)}")
+          if not links:
+              raise SystemExit("No public listing links detected; source layout may have changed.")
+          PY
