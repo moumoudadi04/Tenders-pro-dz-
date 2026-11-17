@@ -82,7 +82,14 @@ fun KEndrProApp() {
         } finally { loading = false }
     }
 
-    LaunchedEffect(apiBase) {\n        while (true) {\n            load()\n            delay(15 * 60 * 1000L)\n        }\n    }\n\n    val filtered = tenders.filter {
+    LaunchedEffect(apiBase) {
+        while (true) {
+            load()
+            delay(15 * 60 * 1000L)
+        }
+    }
+
+    val filtered = tenders.filter {
         (query.isBlank() || it.title.contains(query, true) || it.reference.contains(query, true)) &&
         (wilaya.isBlank() || it.wilaya.contains(wilaya, true))
     }
