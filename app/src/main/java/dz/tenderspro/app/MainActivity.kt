@@ -1,73 +1,109 @@
 package dz.tenderspro.app
 
 import android.os.Bundle
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 
-data class Tender(val title:String,val organization:String,val wilaya:String,val kind:String,val date:String)
 class MainActivity : ComponentActivity() {
- override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { TendersApp() } }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent { TendersLiveApp() }
+    }
 }
-@Composable fun TendersApp() {
- val navy=Color(0xFF10243A); val teal=Color(0xFF00A896)
- var query by remember { mutableStateOf("") }; var selected by remember { mutableStateOf("الكل") }
- val sample=listOf(
-  Tender("أشغال تهيئة وصيانة","بلدية عين كرشة","أم البواقي","مناقصة","17/11/2026"),
-  Tender("اقتناء لوازم ومعدات مكتبية","مؤسسة عمومية","سطيف","استشارة","16/11/2026"),
-  Tender("أشغال ترميم وصيانة","مديرية التجهيزات العمومية","قسنطينة","مناقصة","15/11/2026")
- )
- val filtered=sample.filter { (query.isBlank() || it.title.contains(query,true) || it.organization.contains(query,true) || it.wilaya.contains(query,true)) && (selected=="الكل" || it.kind==selected) }
- MaterialTheme(colorScheme=darkColorScheme(primary=teal,background=Color(0xFFF4F7FA),surface=Color.White,onSurface=navy)) {
-  Column(Modifier.fillMaxSize().background(Color(0xFFF4F7FA))) {
-   Column(Modifier.fillMaxWidth().background(navy).padding(20.dp)) {
-    Text("Tenders-pro-dz",color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Bold)
-    Text("بوابتك لمتابعة المناقصات والاستشارات في الجزائر",color=Color(0xFFD5E3EF),fontSize=13.sp)
-    Spacer(Modifier.height(16.dp))
-    OutlinedTextField(query,{query=it},Modifier.fillMaxWidth(),placeholder={Text("ابحث عن إعلان أو مؤسسة أو ولاية")},singleLine=true,shape=RoundedCornerShape(14.dp),colors=OutlinedTextFieldDefaults.colors(unfocusedContainerColor=Color.White,focusedContainerColor=Color.White,unfocusedBorderColor=Color.Transparent,focusedBorderColor=teal))
-   }
-   Row(Modifier.fillMaxWidth().padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-    listOf("الكل","مناقصة","استشارة").forEach { label ->
-     FilterChip(selected==label,{selected=label},label={Text(label)},colors=FilterChipDefaults.filterChipColors(selectedContainerColor=teal,selectedLabelColor=Color.White))
+
+@Composable
+fun TendersLiveApp() {
+    val navy = Color(0xFF10243A)
+    val teal = Color(0xFF00A896)
+    var selectedSource by remember { mutableStateOf("live") }
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    var pageTitle by remember { mutableStateOf("المناقصات الحقيقية") }
+
+    BackHandler(enabled = selectedSource != "home") {
+        if (webView?.canGoBack() == true) webView?.goBack() else selectedSource = "home"
     }
-   }
-   Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-    Text("الإعلانات",fontSize=20.sp,fontWeight=FontWeight.Bold,color=navy)
-    Text("${filtered.size} نتائج",color=Color.Gray,fontSize=12.sp)
-   }
-   LazyColumn(contentPadding=PaddingValues(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-    items(filtered) { item ->
-     Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(16.dp),colors=CardDefaults.cardColors(containerColor=Color.White),elevation=CardDefaults.cardElevation(2.dp)) {
-      Column(Modifier.padding(16.dp)) {
-       Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-        Text(item.kind,color=teal,fontWeight=FontWeight.Bold,fontSize=12.sp)
-        Text(item.date,color=Color.Gray,fontSize=12.sp)
-       }
-       Spacer(Modifier.height(8.dp))
-       Text(item.title,color=navy,fontWeight=FontWeight.Bold,fontSize=17.sp,textAlign=TextAlign.Start)
-       Spacer(Modifier.height(6.dp))
-       Text(item.organization,color=Color.DarkGray,fontSize=14.sp)
-       Text("الولاية: ${item.wilaya}",color=Color.Gray,fontSize=12.sp)
-      }
-     }
+
+    MaterialTheme(colorScheme = lightColorScheme(primary = teal, background = Color(0xFFF4F7FA))) {
+        Column(Modifier.fillMaxSize().background(Color(0xFFF4F7FA))) {
+            Column(Modifier.fillMaxWidth().background(navy).padding(18.dp)) {
+                Text("Tenders-pro-dz", color = Color.White, fontSize = 23.sp)
+                Text("متابعة المناقصات والإعلانات في الجزائر", color = Color(0xFFD5E3EF), fontSize = 13.sp)
+            }
+
+            if (selectedSource == "home") {
+                Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("مصادر المناقصات", style = MaterialTheme.typography.titleLarge, color = navy)
+                    Text("اختر مصدراً لعرض الإعلانات المنشورة فعلياً. قد تتطلب بعض الوثائق التسجيل لدى الجهة الناشرة.", color = Color.DarkGray)
+                    SourceButton("الإعلانات الحية — Algeria Tenders", "قائمة إعلانات محدثة وروابط تفاصيلها", teal) {
+                        selectedSource = "live"; pageTitle = "الإعلانات الحية"
+                    }
+                    SourceButton("البوابة الإلكترونية الرسمية للصفقات العمومية", "وزارة المالية — البحث والإعلانات الرسمية", navy) {
+                        selectedSource = "official"; pageTitle = "البوابة الرسمية"
+                    }
+                    SourceButton("BOMOP — النشرة الرسمية لصفقات المتعامل العمومي", "الوكالة الوطنية للنشر والإشهار ANEP", navy) {
+                        selectedSource = "bomop"; pageTitle = "BOMOP"
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("ملاحظة: Algeria Tenders منصة تجميع تجارية وليست جهة حكومية. اعتمد على الإعلان الأصلي والبوابة الرسمية للتحقق من الشروط والآجال.", color = Color.Gray, fontSize = 12.sp)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { selectedSource = "home" }) { Text("رجوع للمصادر") }
+                    Text(pageTitle, color = navy, modifier = Modifier.padding(top = 10.dp))
+                    TextButton(onClick = { webView?.reload() }) { Text("تحديث") }
+                }
+                val url = when (selectedSource) {
+                    "official" -> "https://marches-publics.gov.dz/"
+                    "bomop" -> "https://bomop.anep.dz/ar/"
+                    else -> "https://www.algeriatenders.com/appel-d-offres"
+                }
+                key(selectedSource) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { context ->
+                            WebView(context).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                webViewClient = WebViewClient()
+                                webChromeClient = WebChromeClient()
+                                loadUrl(url)
+                                webView = this
+                            }
+                        },
+                        update = { webView = it }
+                    )
+                }
+            }
+        }
     }
-    if(filtered.isEmpty()) item { Text("لا توجد نتائج مطابقة",Modifier.fillMaxWidth().padding(24.dp),textAlign=TextAlign.Center,color=Color.Gray) }
-   }
-   Text("نسخة أولية — البيانات المعروضة تجريبية وليست إعلانات رسمية",Modifier.fillMaxWidth().padding(8.dp),fontSize=10.sp,color=Color.Gray,textAlign=TextAlign.Center)
-  }
- }
+}
+
+@Composable
+private fun SourceButton(title: String, subtitle: String, color: Color, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text(title, color = color, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(5.dp))
+            Text(subtitle, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }
