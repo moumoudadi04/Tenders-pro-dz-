@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -81,7 +82,7 @@ fun KEndrProApp() {
         } finally { loading = false }
     }
 
-    val filtered = tenders.filter {
+    LaunchedEffect(apiBase) {\n        while (true) {\n            load()\n            delay(15 * 60 * 1000L)\n        }\n    }\n\n    val filtered = tenders.filter {
         (query.isBlank() || it.title.contains(query, true) || it.reference.contains(query, true)) &&
         (wilaya.isBlank() || it.wilaya.contains(wilaya, true))
     }
